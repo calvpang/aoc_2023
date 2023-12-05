@@ -15,6 +15,7 @@ fn read_input() -> Vec<String> {
     input
 }
 
+// Finding which lines each section starts and ends on
 struct SectionPositions {
     seed: (usize, usize),
     seed_to_soil: (usize, usize),
@@ -47,6 +48,7 @@ fn find_start_end(input: Vec<String>) -> SectionPositions {
     let temperature_to_humidity_end = humidity_to_location_start - 2;
     let humidity_to_location_end = input.len();
 
+    // Creating the SectionPositions struct
     SectionPositions {
         seed: (seed_start, seed_end),
         seed_to_soil: (seed_to_soil_start, seed_to_soil_end),
@@ -59,6 +61,7 @@ fn find_start_end(input: Vec<String>) -> SectionPositions {
     }
 }
 
+// Storing the Input Data
 #[derive(Clone)]
 struct InputData {
     seeds: Vec<i64>,
@@ -73,7 +76,6 @@ struct InputData {
 
 // Parse the Input into the InputData struct
 fn parse_input(input: Vec<String>, positions: SectionPositions) -> InputData {
-    let mut seeds: Vec<i64> = Vec::new();
     let mut seed_to_soil: Vec<Vec<i64>> = Vec::new();
     let mut soil_to_fertiliser: Vec<Vec<i64>> = Vec::new();
     let mut fertiliser_to_water: Vec<Vec<i64>> = Vec::new();
@@ -82,23 +84,12 @@ fn parse_input(input: Vec<String>, positions: SectionPositions) -> InputData {
     let mut temperature_to_humidity: Vec<Vec<i64>> = Vec::new();
     let mut humidity_to_location: Vec<Vec<i64>> = Vec::new();
 
-    // Regexes
+    // Regex for extracting numbers from strings
     let re = Regex::new(r"\d+").unwrap();
 
     // Extracting the Seeds
-    let seeds_values = re.find_iter(&input[positions.seed.0]).map(|mat| mat.as_str().parse().unwrap()).collect::<Vec<i64>>();
-    // Getting pairs of values from seeds_values
-    for value in (0..seeds_values.len()).step_by(2) {
-        let start = seeds_values[value];
-        let range = seeds_values[value + 1];
-
-        for i in 0..range {
-            seeds.push(start + i);
-            }
-        }
+    let seeds = re.find_iter(&input[positions.seed.0]).map(|mat| mat.as_str().parse().unwrap()).collect::<Vec<i64>>();
     
-    // println!("Seeds: {:?}", seeds);
-
     // Extracting the Seed to Soil Map
     let seed_to_soil_lines = &input[positions.seed_to_soil.0..positions.seed_to_soil.1];
     for line in seed_to_soil_lines {
@@ -173,105 +164,63 @@ fn parse_input(input: Vec<String>, positions: SectionPositions) -> InputData {
 }
 
 // Check Mappings
-fn check_mappings(key: i64, map: Vec<Vec<i64>>) -> i64 {
+fn check_mappings(key: i64, map: &[Vec<i64>]) -> i64 {
     let mut found = false;
     let mut value = 0;
 
     for mapping in map {
         // If the Source exists in the map, calculate it
-        if key >= mapping[1] && key < mapping[1] + mapping[2] {
+        if key >= mapping[1] && key <= mapping[1] + mapping[2] {
             let value_increment = key - mapping[1];
             value = mapping[0] + value_increment;
-            // println!("Key: {}, Value: {}", key, value);
             found = true;
         }
     }
     // If the Source doesn't exist in the map, return the Source
     if !found {
-        // println!("Key: {}, Value: {}", key, key);
         value = key;
     }
+    // Debugging!
+    // println!("Key: {}, Value: {}", key, value);
     value
 }
 
 // Find the Location for a Particular Seed in InputData
-fn find_locations(input_data: InputData) -> Vec<i64> {
-    let mut soils = Vec::new();
-    let mut fertilisers = Vec::new();
-    let mut waters = Vec::new();
-    let mut lights = Vec::new();
-    let mut temperatures = Vec::new();
-    let mut humidities = Vec::new();
+fn find_locations(input_data: &InputData) -> Vec<i64> {
     let mut locations = Vec::new();
 
-    for seed in input_data.seeds {
-        let soil = check_mappings(seed, input_data.seed_to_soil.clone());
-        soils.push(soil);
+    // Changed from Part 1, now using chunks(2) to get the start and length of each range of seeds
+    // and generating a vector of seeds from that
+    for seed_range in input_data.seeds.chunks(2) {
+        let start = seed_range[0];
+        let length = seed_range[1];
+        let seeds: Vec<_> = (start..start+length).collect();
 
-        let fertiliser = check_mappings(soil, input_data.soil_to_fertiliser.clone());
-        fertilisers.push(fertiliser);
+        // Using par_iter() to parallelise the for loop and map() to map the seeds to their locations and collect them into a vector
+        // for the current range of seeds
+        let locations_for_range: Vec<_> = seeds.par_iter()
+            .map(|&seed| {
+                let soil = check_mappings(seed, &input_data.seed_to_soil);
+                let fertiliser = check_mappings(soil, &input_data.soil_to_fertiliser);
+                let water = check_mappings(fertiliser, &input_data.fertiliser_to_water);
+                let light = check_mappings(water, &input_data.water_to_light);
+                let temperature = check_mappings(light, &input_data.light_to_temperature);
+                let humidity = check_mappings(temperature, &input_data.temperature_to_humidity);
+                let location = check_mappings(humidity, &input_data.humidity_to_location);
+                location
+            })
+            .collect();
 
-        let water = check_mappings(fertiliser, input_data.fertiliser_to_water.clone());
-        waters.push(water);
-
-        let light = check_mappings(water, input_data.water_to_light.clone());
-        lights.push(light);
-
-        let temperature = check_mappings(light, input_data.light_to_temperature.clone());
-        temperatures.push(temperature);
-
-        let humidity = check_mappings(temperature, input_data.temperature_to_humidity.clone());
-        humidities.push(humidity);
-
-        let location = check_mappings(humidity, input_data.humidity_to_location.clone());
-        locations.push(location);
-
-        // Debugging!
-        // println!("Seed: {}, Soil: {}, Fertiliser: {}, Water: {}, Light: {}, Temperature: {}, Humidity: {}, Location: {}", seed, soil, fertiliser, water, light, temperature, humidity, location);
+        locations.extend(locations_for_range);
     }
     locations
 }
 
-fn find_locations_multithreaded(input_data: InputData) -> Vec<i64> {
-    const BATCH_SIZE: usize = 25; // Define the batch size
-
-    let seeds = input_data.seeds.clone();
-    let num_batches = (seeds.len() + BATCH_SIZE - 1) / BATCH_SIZE; // Calculate the number of batches
-
-    let results: Vec<_> = (0..num_batches)
-        .into_par_iter() // Convert the range into a parallel iterator
-        .map(|batch_index| {
-            let start_index = batch_index * BATCH_SIZE;
-            let end_index = (start_index + BATCH_SIZE).min(seeds.len());
-
-            let batch_seeds = seeds[start_index..end_index].to_vec();
-            let input_data_clone = input_data.clone();
-
-            let mut batch_locations = Vec::new();
-            for seed in batch_seeds {
-                let soil = check_mappings(seed, input_data_clone.seed_to_soil.clone());
-                let fertiliser = check_mappings(soil, input_data_clone.soil_to_fertiliser.clone());
-                let water = check_mappings(fertiliser, input_data_clone.fertiliser_to_water.clone());
-                let light = check_mappings(water, input_data_clone.water_to_light.clone());
-                let temperature = check_mappings(light, input_data_clone.light_to_temperature.clone());
-                let humidity = check_mappings(temperature, input_data_clone.temperature_to_humidity.clone());
-                let location = check_mappings(humidity, input_data_clone.humidity_to_location.clone());
-                batch_locations.push(location);
-            }
-            batch_locations
-        })
-        .flatten() // Flatten the vector of vectors into a single vector
-        .collect();
-
-    results
-}
-
 // Find the Smallest Location
-fn get_smallest_location(mut locations: Vec<i64>) -> i64 {
-    locations.sort();
-    let smallest_location = locations[0];
+fn get_smallest_location(locations: Vec<i64>) -> i64 {
+    let smallest_location = locations.iter().min().unwrap();
     println!("Smallest Location: {}", smallest_location);
-    smallest_location
+    *smallest_location
 }
 
 fn main() {
@@ -283,8 +232,8 @@ fn main() {
     let clean_input = parse_input(input, positions);
 
     println!("\nFinding Locations from Seed...");
-    let locations = find_locations(clean_input);
-    // let locations = find_locations_multithreaded(clean_input);
+    let locations = find_locations(&clean_input);
+    // let locations = find_locations_multithreaded(&clean_input);
 
     println!("\nFinding Smallest Location from Seeds...");
     let _smallest_location = get_smallest_location(locations);
