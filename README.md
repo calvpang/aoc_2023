@@ -1,2 +1,3 @@
-# aoc_2023
-My attempt at Advent of Code 2023. Please be gentle.
+# Advent of Code - 2023
+This repository contains my attempt at Advent of Code - 2023 using Rust.
+Please be gentle.
